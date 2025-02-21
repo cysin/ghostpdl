@@ -359,7 +359,7 @@ CCLD=$(CC)
 CCAUXLD=$(CCAUX)
 
 # Define the default gcc flags.
-GCFLAGS=  -Wall -Wstrict-prototypes -Wundef -Wmissing-declarations -Wmissing-prototypes -Wwrite-strings -Wno-strict-aliasing -Werror=declaration-after-statement -fno-builtin -fno-common -Werror=return-type -DHAVE_STDINT_H=1 -DHAVE_DIRENT_H=1 -DHAVE_SYS_DIR_H=1 -DHAVE_SYS_TIME_H=1 -DHAVE_SYS_TIMES_H=1 -DHAVE_INTTYPES_H=1 -DGX_COLOR_INDEX_TYPE="unsigned long int" -D__USE_UNIX98=1   -DNOCONTRIB
+GCFLAGS=  -Wall -Wstrict-prototypes -Wundef -Wmissing-declarations -Wmissing-prototypes -Wwrite-strings -Wno-strict-aliasing -fno-builtin -fno-common -Werror=return-type -DHAVE_STDINT_H=1 -DHAVE_DIRENT_H=1 -DHAVE_SYS_DIR_H=1 -DHAVE_SYS_TIME_H=1 -DHAVE_SYS_TIMES_H=1 -DHAVE_INTTYPES_H=1 -DGX_COLOR_INDEX_TYPE="unsigned long int" -D__USE_UNIX98=1   -DNOCONTRIB
 
 # Define the added flags for standard, debugging, profiling
 # and shared object builds.

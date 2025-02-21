@@ -59,6 +59,7 @@ extern char *getenv(const char *);
 #include <dirent.h>
 #include <dlfcn.h>
 #include <string.h>
+#include <sys/time.h>
 
 void
 gp_init(void)
@@ -159,9 +160,7 @@ gp_get_realtime(long *pdt)
     }
 #else /* All other systems */
     {
-        struct timezone tzp;
-
-        if (gettimeofday(&tp, &tzp) == -1) {
+        if (gettimeofday(&tp, NULL) == -1) {  // Pass NULL instead of tzp
             lprintf("Ghostscript: gettimeofday failed!\n");
             tp.tv_sec = tp.tv_usec = 0;
         }
@@ -180,6 +179,7 @@ gp_get_realtime(long *pdt)
            tp.tv_sec, tp.tv_usec, pdt[0], pdt[1]);
 #endif
 }
+
 
 /* Read the current user CPU time (in seconds) */
 /* and fraction (in nanoseconds).  */

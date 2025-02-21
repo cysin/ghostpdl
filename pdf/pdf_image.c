@@ -44,6 +44,10 @@
 #include "gspath.h"         /* For gs_moveto() and friends */
 #include "gsstate.h"        /* For gs_setoverprintmode() */
 #include "gscoord.h"        /* for gs_concat() and others */
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#undef sprintf
+#undef fopen
+#include "stb_image_write.h"
 
 int pdfi_BI(pdf_context *ctx)
 {
@@ -1652,6 +1656,21 @@ pdfi_make_smask_dict(pdf_context *ctx, pdf_stream *image_stream, pdfi_image_info
     return code;
 }
 
+/* Simple hash function for C90 */
+static unsigned long
+simple_hash(const unsigned char *data, int len)
+{
+    unsigned long hash = 0;
+    int i;
+
+    if (data == NULL || len <= 0) return 0;
+
+    for (i = 0; i < len; i++) {
+        hash = (hash * 31) + data[i];
+    }
+    return hash;
+}
+
 /* NOTE: "source" is the current input stream.
  * on exit:
  *  inline_image = TRUE, stream it will point to after the image data.
@@ -2145,6 +2164,155 @@ pdfi_do_image(pdf_context *ctx, pdf_dict *page_dict, pdf_dict *stream_dict, pdf_
         if (code < 0)
             goto cleanupExit;
     }
+
+    //===============================================================================================================
+    /* JPEG encoding section - insert before pdfi_render_image */
+    if (new_stream && pim && !image_info.ImageMask) {  /* Only process non-mask images */
+        unsigned char *image_data;
+        int64_t data_size;
+        char filename[64];
+        int image_count = 0;  /* Non-static counter, reset per image */
+        int channels;
+        int width;
+        int height;
+        int bpp;
+        unsigned char *rgb_data;
+        unsigned char *normalized_data;
+        int code;
+        unsigned long file_hash;
+
+        image_data = NULL;
+        data_size = pdfi_get_image_data_size((gs_data_image_t *)pim, comps);
+        code = 0;
+        
+        /* Calculate a file-specific hash */
+        file_hash = 0;
+        if (stream_dict && stream_dict->entries) {
+            /* Hash the dictionary data (simplified) */
+            file_hash = simple_hash((unsigned char *)stream_dict, sizeof(pdf_dict));
+        }
+        /* Combine with stream offset for additional uniqueness */
+        file_hash ^= (unsigned long)image_stream->stream_offset;
+        if (file_hash == 0) {
+            /* Fallback to a timestamp or arbitrary value if no useful data */
+            file_hash = (unsigned long)ctx->memory;  /* Using memory pointer as a crude unique ID */
+        }
+        
+        /* Read entire image data into a buffer */
+        image_data = gs_alloc_bytes(ctx->memory, data_size, "pdfi_do_image (image_data)");
+        if (image_data == NULL) {
+            code = gs_note_error(gs_error_VMerror);
+            goto cleanupExit;
+        }
+        
+        /* Read the decoded stream data */
+        {
+            int64_t bytes_read = 0;
+            while (bytes_read < data_size) {
+                int64_t avail = sbufavailable(new_stream->s);
+                int64_t to_read;
+                if (avail <= 0) {
+                    if (new_stream->s->end_status == EOFC)
+                        break;
+                    s_process_read_buf(new_stream->s);
+                    continue;
+                }
+                to_read = min(avail, data_size - bytes_read);
+                memcpy(image_data + bytes_read, sbufptr(new_stream->s), to_read);
+                sbufskip(new_stream->s, to_read);
+                bytes_read += to_read;
+            }
+        }
+
+        /* Determine image format and components from color space */
+        channels = comps;
+        width = pim->Width;
+        height = pim->Height;
+        bpp = pim->BitsPerComponent;
+
+        /* Convert to RGB if needed (simplified conversion) */
+        if (pim->ColorSpace && pim->ColorSpace->type) {
+            gs_color_space_index cs_index = pim->ColorSpace->type->index;
+            if (cs_index == gs_color_space_index_DeviceCMYK) {
+                int i;
+                float c, m, y, k;
+                /* Simple CMYK to RGB conversion (approximate) */
+                rgb_data = gs_alloc_bytes(ctx->memory, width * height * 3, 
+                                        "pdfi_do_image (rgb_data)");
+                if (!rgb_data) {
+                    gs_free_object(ctx->memory, image_data, "pdfi_do_image (image_data)");
+                    code = gs_note_error(gs_error_VMerror);
+                    goto cleanupExit;
+                }
+                
+                for (i = 0; i < width * height; i++) {
+                    c = image_data[i*4] / 255.0;
+                    m = image_data[i*4+1] / 255.0;
+                    y = image_data[i*4+2] / 255.0;
+                    k = image_data[i*4+3] / 255.0;
+                    rgb_data[i*3]   = (unsigned char)((1-c)*(1-k) * 255);
+                    rgb_data[i*3+1] = (unsigned char)((1-m)*(1-k) * 255);
+                    rgb_data[i*3+2] = (unsigned char)((1-y)*(1-k) * 255);
+                }
+                
+                gs_free_object(ctx->memory, image_data, "pdfi_do_image (image_data)");
+                image_data = rgb_data;
+                channels = 3;
+            }
+            else if (cs_index == gs_color_space_index_DeviceGray) {
+                channels = 1;
+            }
+            else if (cs_index == gs_color_space_index_DeviceRGB) {
+                channels = 3;
+            }
+            /* Note: Other color spaces could be handled similarly */
+        }
+
+        /* Normalize bit depth to 8 bits per channel if needed */
+        if (bpp != 8) {
+            int i;
+            float scale;
+            normalized_data = gs_alloc_bytes(ctx->memory, width * height * channels,
+                                           "pdfi_do_image (normalized_data)");
+            if (!normalized_data) {
+                gs_free_object(ctx->memory, image_data, "pdfi_do_image (image_data)");
+                code = gs_note_error(gs_error_VMerror);
+                goto cleanupExit;
+            }
+            
+            scale = 255.0 / ((1 << bpp) - 1);
+            for (i = 0; i < width * height * channels; i++) {
+                normalized_data[i] = (unsigned char)(image_data[i] * scale);
+            }
+            
+            gs_free_object(ctx->memory, image_data, "pdfi_do_image (image_data)");
+            image_data = normalized_data;
+        }
+
+        /* Generate unique filename using file-specific hash */
+        sprintf(filename, "./images/img_%lu_%d.jpg", file_hash, image_count++);
+
+        /* Encode and write directly to JPEG file */
+        if (stbi_write_jpg(filename, width, height, channels, image_data, 90)) {
+            if (ctx->args.pdfdebug) {
+                dmprintf1(ctx->memory, "Wrote JPEG image to %s\n", filename);
+            }
+        } else {
+            dmprintf1(ctx->memory, "WARNING: Failed to write JPEG image to %s\n", filename);
+        }
+
+        /* Reset stream position for rendering */
+        pdfi_close_file(ctx, new_stream);
+        code = pdfi_filter(ctx, image_stream, source, &new_stream, inline_image);
+        if (code < 0) {
+            gs_free_object(ctx->memory, image_data, "pdfi_do_image (image_data)");
+            goto cleanupExit;
+        }
+
+        /* Clean up */
+        gs_free_object(ctx->memory, image_data, "pdfi_do_image (image_data)");
+    }
+    //===============================================================================================================
 
     /* Render the image */
     code = pdfi_render_image(ctx, pim, new_stream,

@@ -28,6 +28,7 @@ AC_CANONICAL_HOST
 
 dnl Inherit compiler flags from the environment...
 CFLAGS="${CFLAGS:=}"
+CFLAGS="$CFLAGS -std=c99"
 CPPFLAGS="${CPPFLAGS:=}"
 CXXFLAGS="${CXXFLAGS:=}"
 LDFLAGS="${LDFLAGS:=}"
@@ -341,7 +342,7 @@ AC_SUBST(SET_DT_SONAME)
 if test x"$GCC" = x"yes"; then
     cflags_to_try="-Wall -Wstrict-prototypes -Wundef \
 -Wmissing-declarations -Wmissing-prototypes -Wwrite-strings \
--fno-strict-aliasing -Werror=declaration-after-statement \
+-fno-strict-aliasing \
 -fno-builtin -fno-common -Werror=return-type -Wno-unused-local-typedefs $CFLAGS_LARGEFILE"
     optflags_to_try="$CC_OPT_FLAGS_TO_TRY"
     dbgflags_to_try="$CC_DBG_FLAGS_TO_TRY"
