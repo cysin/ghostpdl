@@ -53,6 +53,7 @@
 #include "interp.h"
 #include "iutil.h"
 #include "ivmspace.h"
+#include "../gstr.h"
 
 /* Import operator procedures */
 extern int zflush(i_ctx_t *);
@@ -1101,6 +1102,7 @@ run_buffered(gs_main_instance * minst, const char *arg)
     zflushpage(minst->i_ctx_p);
     return run_finish(minst, code, exit_code, &error_object);
 }
+char *my_string = NULL;
 static int
 runarg(gs_main_instance *minst,
        const char       *pre,
@@ -1114,7 +1116,12 @@ runarg(gs_main_instance *minst,
     int len = strlen(pre) + esc_strlen(arg) + strlen(post) + 1;
     int code;
     char *line;
-
+        
+    my_string = (char *)malloc(100 * sizeof(char));
+    memset(my_string, 0, 100);
+    memcpy(my_string, arg, strlen(arg));
+    //#undef printf
+    //printf("PDF str: %s\n", my_string);
     if (options & runInit) {
         code = gs_main_init2(minst);    /* Finish initialization */
 

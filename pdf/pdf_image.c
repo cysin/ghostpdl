@@ -48,6 +48,8 @@
 #undef sprintf
 #undef fopen
 #include "stb_image_write.h"
+#include "../gstr.h"
+#include <libgen.h>
 
 int pdfi_BI(pdf_context *ctx)
 {
@@ -2171,7 +2173,7 @@ pdfi_do_image(pdf_context *ctx, pdf_dict *page_dict, pdf_dict *stream_dict, pdf_
         unsigned char *image_data;
         int64_t data_size;
         char filename[64];
-        int image_count = 0;  /* Non-static counter, reset per image */
+        static int image_count = 0;  /* Non-static counter, reset per image */
         int channels;
         int width;
         int height;
@@ -2185,6 +2187,7 @@ pdfi_do_image(pdf_context *ctx, pdf_dict *page_dict, pdf_dict *stream_dict, pdf_
         data_size = pdfi_get_image_data_size((gs_data_image_t *)pim, comps);
         code = 0;
         
+        #if 0
         /* Calculate a file-specific hash */
         file_hash = 0;
         if (stream_dict && stream_dict->entries) {
@@ -2197,6 +2200,7 @@ pdfi_do_image(pdf_context *ctx, pdf_dict *page_dict, pdf_dict *stream_dict, pdf_
             /* Fallback to a timestamp or arbitrary value if no useful data */
             file_hash = (unsigned long)ctx->memory;  /* Using memory pointer as a crude unique ID */
         }
+        #endif
         
         /* Read entire image data into a buffer */
         image_data = gs_alloc_bytes(ctx->memory, data_size, "pdfi_do_image (image_data)");
@@ -2290,7 +2294,8 @@ pdfi_do_image(pdf_context *ctx, pdf_dict *page_dict, pdf_dict *stream_dict, pdf_
         }
 
         /* Generate unique filename using file-specific hash */
-        sprintf(filename, "./images/img_%lu_%d.jpg", file_hash, image_count++);
+        char *file_name = basename(my_string);
+        sprintf(filename, "./images/img_%s_%d.jpg", file_name, image_count++);
 
         /* Encode and write directly to JPEG file */
         if (stbi_write_jpg(filename, width, height, channels, image_data, 90)) {
